@@ -1,15 +1,19 @@
 const std = @import("std");
 const ChildProcess = std.process.Child;
 
-const LogStream = struct { eventMessage: []const u8, subsystem: []const u8, processID: c_int, timestamp: []const u8, machTimestamp: u64 };
+const LogStream = struct { eventMessage: []const u8, subsystem: []const u8, processID: c_int, timestamp: []const u8 };
 
-const AppEvent = struct { timeString: []const u8, type: []const u8, delta: u64 };
+const AppEvent = struct { timeString: []const u8, type: []const u8, hasDelta: bool, delta: i64 };
 
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
 
 pub fn emitEvent(event: AppEvent) !void {
-    try stdout.print("{s},{s}\n", .{ event.timeString, event.type });
+    if (event.hasDelta) {
+        try stdout.print("{s},{s},{d}\n", .{ event.timeString, event.type, event.delta });
+    } else {
+        try stdout.print("{s},{s}\n", .{ event.timeString, event.type });
+    }
 }
 
 pub fn main() !void {
@@ -33,22 +37,36 @@ pub fn main() !void {
 
     try stderr.print("Observing events...\n", .{});
 
+    var reqStartTimeMs: i64 = 0;
+
     while (true) {
         const bytesRead = (try reader.readUntilDelimiter(&buffer, '\n')).len;
         const parsed = try std.json.parseFromSlice(LogStream, allocator, buffer[0..bytesRead], .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
 
-        var evtObject = AppEvent{ .timeString = parsed.value.timestamp, .type = undefined, .delta = 0 };
-        // TODO: handle delta, later on...
+        var evtObject = AppEvent{ .timeString = parsed.value.timestamp, .type = undefined, .hasDelta = false, .delta = 0 };
 
-        // e.g.
         if (std.mem.startsWith(u8, parsed.value.eventMessage, "Requested")) {
             evtObject.type = "request";
+
+            // There is another outstanding request, calculate the delta between requests
+            if (reqStartTimeMs > 0) {
+                evtObject.hasDelta = true;
+                evtObject.delta = std.time.milliTimestamp() - reqStartTimeMs;
+            }
+            reqStartTimeMs = std.time.milliTimestamp();
         } else if (std.mem.startsWith(u8, parsed.value.eventMessage, "Did add")) {
             evtObject.type = "grant";
+
+            if (reqStartTimeMs > 0) {
+                evtObject.hasDelta = true;
+                evtObject.delta = std.time.milliTimestamp() - reqStartTimeMs;
+            }
+            reqStartTimeMs = 0;
         } else if (std.mem.startsWith(u8, parsed.value.eventMessage, "Did remove")) {
             evtObject.type = "revoke";
         } else {
+            try stderr.print("Unexpected message at {s}: {s}...\n", .{ parsed.value.timestamp, parsed.value.eventMessage });
             continue;
         }
 
