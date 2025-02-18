@@ -90,9 +90,11 @@ pub fn main() !void {
             }
             reqStartTimeMs = 0;
         } else if (std.mem.indexOf(u8, parsed.value.eventMessage, " Did remove ") != null) {
-            if (reqStartTimeMs > 0) {
-                continue;
-            }
+            // TODO: maybe skip this log?
+            // When a user is added, they are first removed - thanks alot CyberArk.
+            // if (reqStartTimeMs > 0) {
+            //     continue;
+            // }
             evtObject.type = "revoke";
         } else {
             try stderr.print("Unexpected message at {s}: {s}...\n", .{ parsed.value.timestamp, parsed.value.eventMessage });
