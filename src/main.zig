@@ -1,7 +1,4 @@
 const std = @import("std");
-const ctime = @cImport({
-    @cInclude("time.h");
-});
 
 const ChildProcess = std.process.Child;
 
