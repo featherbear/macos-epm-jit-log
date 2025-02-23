@@ -17,18 +17,18 @@ const Requests = struct {
     requests: std.ArrayList(i64),
     const Self = @This();
 
-    pub fn add(self: *Self, reqStartTimeMs: i64) void {
+    pub fn add(self: *Self, reqStartTimeMs: i64) std.mem.Allocator.Error!void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        self.requests.append(reqStartTimeMs);
+        try self.requests.append(reqStartTimeMs);
     }
 
     pub fn popEarliest(self: *Self) void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        requests.requests.swapRemove(0);
+        _ = requests.requests.swapRemove(0);
     }
 
     pub fn remove(self: *Self, reqStartTimeMs: i64) void {
@@ -37,7 +37,7 @@ const Requests = struct {
 
         for (self.requests.items, 0..) |num, i| {
             if (num == reqStartTimeMs) {
-                self.requests.swapRemove(i);
+                _ = self.requests.swapRemove(i);
                 return;
             }
         }
@@ -56,7 +56,7 @@ const Requests = struct {
         return false;
     }
 };
-var requests = Requests{ .mutex = std.Thread.Mutex{}, .map = std.ArrayList(i64).initCapacity(allocator, 4) };
+var requests = Requests{ .mutex = std.Thread.Mutex{}, .requests = std.ArrayList(i64).init(allocator) };
 
 pub fn emitEvent(event: AppEvent) !void {
     try stdout.print("{d},{s}\n", .{ event.timeMs, event.type });
@@ -67,7 +67,7 @@ fn deltaMonitor(reqStartTimeMs: i64) !void {
     const thresholdSeconds = 120;
     const giveUpMinutes = 120;
 
-    requests.add(reqStartTimeMs);
+    try requests.add(reqStartTimeMs);
     std.time.sleep(thresholdSeconds * std.time.ns_per_s);
 
     while (true) {
