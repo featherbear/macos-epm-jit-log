@@ -77,18 +77,16 @@ fn grantMonitor(grantStartTimeMs: i64) !void {
     try grants.add(grantStartTimeMs);
     std.time.sleep(thresholdHours * std.time.ns_per_hour);
 
-    while (true) {
-        if (grants.contains(grantStartTimeMs)) {
-            const now = std.time.milliTimestamp();
+    while (grants.contains(grantStartTimeMs)) {
+        const now = std.time.milliTimestamp();
 
-            if ((now - grantStartTimeMs) > giveUpHours * std.time.ms_per_hour) {
-                grants.remove(grantStartTimeMs);
-                try emitEvent(AppEvent{ .timeMs = now, .type = "revokeStopTracking" });
-                return;
-            }
-
-            try emitEvent(AppEvent{ .timeMs = now, .type = "revokePending" });
+        if ((now - grantStartTimeMs) > giveUpHours * std.time.ms_per_hour) {
+            grants.remove(grantStartTimeMs);
+            try emitEvent(AppEvent{ .timeMs = now, .type = "revokeStopTracking" });
+            break;
         }
+
+        try emitEvent(AppEvent{ .timeMs = now, .type = "revokePending" });
 
         std.time.sleep(waitMinutes * std.time.ns_per_min);
     }
@@ -102,18 +100,16 @@ fn requestMonitor(reqStartTimeMs: i64) !void {
     try requests.add(reqStartTimeMs);
     std.time.sleep(thresholdSeconds * std.time.ns_per_s);
 
-    while (true) {
-        if (requests.contains(reqStartTimeMs)) {
-            const now = std.time.milliTimestamp();
+    while (requests.contains(reqStartTimeMs)) {
+        const now = std.time.milliTimestamp();
 
-            if ((now - reqStartTimeMs) > giveUpMinutes * std.time.ms_per_min) {
-                requests.remove(reqStartTimeMs);
-                try emitEvent(AppEvent{ .timeMs = now, .type = "requestStopTracking" });
-                return;
-            }
-
-            try emitEvent(AppEvent{ .timeMs = now, .type = "requestPending" });
+        if ((now - reqStartTimeMs) > giveUpMinutes * std.time.ms_per_min) {
+            requests.remove(reqStartTimeMs);
+            try emitEvent(AppEvent{ .timeMs = now, .type = "requestStopTracking" });
+            break;
         }
+
+        try emitEvent(AppEvent{ .timeMs = now, .type = "requestPending" });
 
         std.time.sleep(waitMinutes * std.time.ns_per_min);
     }
