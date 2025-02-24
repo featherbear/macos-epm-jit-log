@@ -63,7 +63,7 @@ var grants = List{ .mutex = std.Thread.Mutex{}, .list = std.ArrayList(i64).init(
 
 pub fn emitEvent(event: AppEvent) !void {
     if (event.waitTimeMs != null) {
-        try stdout.print("{d},{s},{d}\n", .{ event.timeMs, event.type, event.waitTimeMs.? });
+        try stdout.print("{d},{s},{d}\n", .{ event.timeMs, event.type, @divTrunc(event.waitTimeMs.?, std.time.ms_per_s) });
     } else {
         try stdout.print("{d},{s}\n", .{ event.timeMs, event.type });
     }
@@ -150,9 +150,8 @@ pub fn main() !void {
             evtObject.type = "grant";
 
             // If we don't have a corresponding request, skip setting the waitTimeMs field
-            const reqStartTimeMs = requests.popEarliest();
-            if (reqStartTimeMs) |req| {
-                evtObject.waitTimeMs = now - req;
+            if (requests.popEarliest()) |reqStartTimeMs| {
+                evtObject.waitTimeMs = now - reqStartTimeMs;
             }
 
             _ = try std.Thread.spawn(.{}, grantMonitor, .{now});
@@ -165,9 +164,8 @@ pub fn main() !void {
             evtObject.type = "revoke";
 
             // If we don't have a corresponding grant, skip setting the waitTimeMs field
-            const grantStartTimeMs = grants.popEarliest();
-            if (grantStartTimeMs) |grant| {
-                evtObject.waitTimeMs = now - grant;
+            if (grants.popEarliest()) |grantStartTimeMs| {
+                evtObject.waitTimeMs = now - grantStartTimeMs;
             }
         } else {
             try stderr.print("Unexpected message at {s}: {s}...\n", .{ parsed.value.timestamp, parsed.value.eventMessage });
