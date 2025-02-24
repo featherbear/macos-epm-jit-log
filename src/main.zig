@@ -4,7 +4,7 @@ const ChildProcess = std.process.Child;
 
 const LogStream = struct { eventMessage: []const u8, subsystem: []const u8, processID: c_int, timestamp: []const u8 };
 
-const AppEvent = struct { timeMs: i64, type: []const u8 };
+const AppEvent = struct { timeMs: i64, type: []const u8, waitTimeMs: i64 = -1 };
 
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
@@ -59,7 +59,11 @@ const Requests = struct {
 var requests = Requests{ .mutex = std.Thread.Mutex{}, .requests = std.ArrayList(i64).init(allocator) };
 
 pub fn emitEvent(event: AppEvent) !void {
-    try stdout.print("{d},{s}\n", .{ event.timeMs, event.type });
+    if (event.waitTimeMs != -1) {
+        try stdout.print("{d},{s},{d}\n", .{ event.timeMs, event.type, event.waitTimeMs });
+    } else {
+        try stdout.print("{d},{s}\n", .{ event.timeMs, event.type });
+    }
 }
 
 fn deltaMonitor(reqStartTimeMs: i64) !void {
@@ -87,9 +91,9 @@ fn deltaMonitor(reqStartTimeMs: i64) !void {
 }
 
 pub fn main() !void {
-    const filter = "subsystem == 'com.cyberark.CyberArkEPM' AND ((formatString == 'Requested administrative privileges') OR (eventMessage ENDSWITH \" 'admin' group\" AND (formatString BEGINSWITH 'ac_%llu: Did add ' OR formatString BEGINSWITH 'ac_%llu: Did remove ')))";
+    const predicate = "subsystem == 'com.cyberark.CyberArkEPM' AND ((formatString == 'Requested administrative privileges') OR (eventMessage ENDSWITH \" 'admin' group\" AND (formatString BEGINSWITH 'ac_%llu: Did add ' OR formatString BEGINSWITH 'ac_%llu: Did remove ')))";
 
-    var proc = ChildProcess.init(&[_][]const u8{ "/usr/bin/log", "stream", "--style", "ndjson", "--info", "--predicate", filter }, allocator);
+    var proc = ChildProcess.init(&[_][]const u8{ "/usr/bin/log", "stream", "--style", "ndjson", "--info", "--predicate", predicate }, allocator);
     proc.stdout_behavior = ChildProcess.StdIo.Pipe;
     proc.stderr_behavior = ChildProcess.StdIo.Ignore;
     try proc.spawn();
@@ -120,7 +124,8 @@ pub fn main() !void {
         } else if (std.mem.indexOf(u8, parsed.value.eventMessage, " Did add ") != null) {
             evtObject.type = "grant";
 
-            requests.popEarliest();
+            const reqStartTimeMs = requests.popEarliest();
+            evtObject.waitTimeMs = now - reqStartTimeMs;
         } else if (std.mem.indexOf(u8, parsed.value.eventMessage, " Did remove ") != null) {
             // TODO: maybe skip this log?
             // When a user is added, they are first removed - thanks alot CyberArk.
