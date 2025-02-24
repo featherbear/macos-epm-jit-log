@@ -12,32 +12,32 @@ const stderr = std.io.getStdErr().writer();
 var allocatorBacking = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = allocatorBacking.allocator();
 
-const Requests = struct {
+const List = struct {
     mutex: std.Thread.Mutex,
-    requests: std.ArrayList(i64),
+    list: std.ArrayList(i64),
     const Self = @This();
 
     pub fn add(self: *Self, reqStartTimeMs: i64) std.mem.Allocator.Error!void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        try self.requests.append(reqStartTimeMs);
+        try self.list.append(reqStartTimeMs);
     }
 
-    pub fn popEarliest(self: *Self) void {
+    pub fn popEarliest(self: *Self) i64 {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        _ = requests.requests.swapRemove(0);
+        return requests.list.swapRemove(0);
     }
 
     pub fn remove(self: *Self, reqStartTimeMs: i64) void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        for (self.requests.items, 0..) |num, i| {
+        for (self.list.items, 0..) |num, i| {
             if (num == reqStartTimeMs) {
-                _ = self.requests.swapRemove(i);
+                _ = self.list.swapRemove(i);
                 return;
             }
         }
@@ -47,7 +47,7 @@ const Requests = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        for (self.requests.items) |num| {
+        for (self.list.items) |num| {
             if (num == reqStartTimeMs) {
                 return true;
             }
@@ -56,7 +56,8 @@ const Requests = struct {
         return false;
     }
 };
-var requests = Requests{ .mutex = std.Thread.Mutex{}, .requests = std.ArrayList(i64).init(allocator) };
+var requests = List{ .mutex = std.Thread.Mutex{}, .list = std.ArrayList(i64).init(allocator) };
+var grants = List{ .mutex = std.Thread.Mutex{}, .list = std.ArrayList(i64).init(allocator) };
 
 pub fn emitEvent(event: AppEvent) !void {
     if (event.waitTimeMs != -1) {
@@ -66,7 +67,32 @@ pub fn emitEvent(event: AppEvent) !void {
     }
 }
 
-fn deltaMonitor(reqStartTimeMs: i64) !void {
+fn grantMonitor(grantStartTimeMs: i64) !void {
+    const waitMinutes = 60;
+    const thresholdHours = 2;
+    const giveUpHours = 24;
+
+    try grants.add(grantStartTimeMs);
+    std.time.sleep(thresholdHours * std.time.ns_per_hour);
+
+    while (true) {
+        if (grants.contains(grantStartTimeMs)) {
+            const now = std.time.milliTimestamp();
+
+            if ((now - grantStartTimeMs) > giveUpHours * std.time.ms_per_hour) {
+                grants.remove(grantStartTimeMs);
+                try emitEvent(AppEvent{ .timeMs = now, .type = "revokeStopTracking" });
+                return;
+            }
+
+            try emitEvent(AppEvent{ .timeMs = now, .type = "revokePending" });
+        }
+
+        std.time.sleep(waitMinutes * std.time.ns_per_min);
+    }
+}
+
+fn requestMonitor(reqStartTimeMs: i64) !void {
     const waitMinutes = 5;
     const thresholdSeconds = 120;
     const giveUpMinutes = 120;
@@ -80,6 +106,7 @@ fn deltaMonitor(reqStartTimeMs: i64) !void {
 
             if ((now - reqStartTimeMs) > giveUpMinutes * std.time.ms_per_min) {
                 requests.remove(reqStartTimeMs);
+                try emitEvent(AppEvent{ .timeMs = now, .type = "requestStopTracking" });
                 return;
             }
 
@@ -120,12 +147,14 @@ pub fn main() !void {
         if (std.mem.startsWith(u8, parsed.value.eventMessage, "Requested")) {
             evtObject.type = "request";
 
-            _ = try std.Thread.spawn(.{}, deltaMonitor, .{now});
+            _ = try std.Thread.spawn(.{}, requestMonitor, .{now});
         } else if (std.mem.indexOf(u8, parsed.value.eventMessage, " Did add ") != null) {
             evtObject.type = "grant";
 
             const reqStartTimeMs = requests.popEarliest();
             evtObject.waitTimeMs = now - reqStartTimeMs;
+
+            _ = try std.Thread.spawn(.{}, grantMonitor, .{now});
         } else if (std.mem.indexOf(u8, parsed.value.eventMessage, " Did remove ") != null) {
             // TODO: maybe skip this log?
             // When a user is added, they are first removed - thanks alot CyberArk.
@@ -133,6 +162,9 @@ pub fn main() !void {
             //     continue;
             // }
             evtObject.type = "revoke";
+
+            const grantStartTimeMs = grants.popEarliest();
+            evtObject.waitTimeMs = now - grantStartTimeMs;
         } else {
             try stderr.print("Unexpected message at {s}: {s}...\n", .{ parsed.value.timestamp, parsed.value.eventMessage });
             continue;
