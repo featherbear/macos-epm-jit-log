@@ -4,7 +4,7 @@ const ChildProcess = std.process.Child;
 
 const LogStream = struct { eventMessage: []const u8, subsystem: []const u8, processID: c_int, timestamp: []const u8 };
 
-const AppEvent = struct { timeMs: i64, type: []const u8, waitTimeMs: i64 = -1 };
+const AppEvent = struct { timeMs: i64, type: []const u8, waitTimeMs: ?i64 = null };
 
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
@@ -24,9 +24,11 @@ const List = struct {
         try self.list.append(reqStartTimeMs);
     }
 
-    pub fn popEarliest(self: *Self) i64 {
+    pub fn popEarliest(self: *Self) ?i64 {
         self.mutex.lock();
         defer self.mutex.unlock();
+
+        if (requests.list.items.len == 0) return null;
 
         return requests.list.swapRemove(0);
     }
@@ -60,8 +62,8 @@ var requests = List{ .mutex = std.Thread.Mutex{}, .list = std.ArrayList(i64).ini
 var grants = List{ .mutex = std.Thread.Mutex{}, .list = std.ArrayList(i64).init(allocator) };
 
 pub fn emitEvent(event: AppEvent) !void {
-    if (event.waitTimeMs != -1) {
-        try stdout.print("{d},{s},{d}\n", .{ event.timeMs, event.type, event.waitTimeMs });
+    if (event.waitTimeMs != null) {
+        try stdout.print("{d},{s},{d}\n", .{ event.timeMs, event.type, event.waitTimeMs.? });
     } else {
         try stdout.print("{d},{s}\n", .{ event.timeMs, event.type });
     }
@@ -151,8 +153,11 @@ pub fn main() !void {
         } else if (std.mem.indexOf(u8, parsed.value.eventMessage, " Did add ") != null) {
             evtObject.type = "grant";
 
+            // If we don't have a corresponding request, skip setting the waitTimeMs field
             const reqStartTimeMs = requests.popEarliest();
-            evtObject.waitTimeMs = now - reqStartTimeMs;
+            if (reqStartTimeMs) |req| {
+                evtObject.waitTimeMs = now - req;
+            }
 
             _ = try std.Thread.spawn(.{}, grantMonitor, .{now});
         } else if (std.mem.indexOf(u8, parsed.value.eventMessage, " Did remove ") != null) {
@@ -163,8 +168,11 @@ pub fn main() !void {
             // }
             evtObject.type = "revoke";
 
+            // If we don't have a corresponding grant, skip setting the waitTimeMs field
             const grantStartTimeMs = grants.popEarliest();
-            evtObject.waitTimeMs = now - grantStartTimeMs;
+            if (grantStartTimeMs) |grant| {
+                evtObject.waitTimeMs = now - grant;
+            }
         } else {
             try stderr.print("Unexpected message at {s}: {s}...\n", .{ parsed.value.timestamp, parsed.value.eventMessage });
             continue;
