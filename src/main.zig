@@ -28,9 +28,9 @@ const List = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        if (requests.list.items.len == 0) return null;
+        if (self.list.items.len == 0) return null;
 
-        return requests.list.swapRemove(0);
+        return self.list.swapRemove(0);
     }
 
     pub fn remove(self: *Self, reqStartTimeMs: i64) void {
