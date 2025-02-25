@@ -71,7 +71,7 @@ pub fn emitEvent(event: AppEvent) !void {
 
 fn grantMonitor(grantStartTimeMs: i64) !void {
     const waitMinutes = 60;
-    const thresholdHours = 2;
+    const thresholdHours = 1;
     const giveUpHours = 24;
 
     try grants.add(grantStartTimeMs);
