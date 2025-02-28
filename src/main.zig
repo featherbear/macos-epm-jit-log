@@ -71,11 +71,11 @@ pub fn emitEvent(event: AppEvent) !void {
 
 fn grantMonitor(grantStartTimeMs: i64) !void {
     const waitMinutes = 60;
-    const thresholdHours = 1;
+    const thresholdMinutes = 60 + 5;
     const giveUpHours = 24;
 
     try grants.add(grantStartTimeMs);
-    std.time.sleep(thresholdHours * std.time.ns_per_hour);
+    std.time.sleep(thresholdMinutes * std.time.ns_per_minute);
 
     while (grants.contains(grantStartTimeMs)) {
         const now = std.time.milliTimestamp();
