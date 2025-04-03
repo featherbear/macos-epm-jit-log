@@ -75,7 +75,7 @@ fn grantMonitor(grantStartTimeMs: i64) !void {
     const giveUpHours = 24;
 
     try grants.add(grantStartTimeMs);
-    std.time.sleep(thresholdMinutes * std.time.ns_per_minute);
+    std.time.sleep(thresholdMinutes * std.time.ns_per_min);
 
     while (grants.contains(grantStartTimeMs)) {
         const now = std.time.milliTimestamp();
