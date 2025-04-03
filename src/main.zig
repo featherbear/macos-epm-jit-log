@@ -30,7 +30,7 @@ const List = struct {
 
         if (self.list.items.len == 0) return null;
 
-        return self.list.swapRemove(0);
+        return self.list.orderedRemove(0);
     }
 
     pub fn remove(self: *Self, reqStartTimeMs: i64) void {
@@ -39,7 +39,7 @@ const List = struct {
 
         for (self.list.items, 0..) |num, i| {
             if (num == reqStartTimeMs) {
-                _ = self.list.swapRemove(i);
+                _ = self.list.orderedRemove(i);
                 return;
             }
         }
