@@ -3,6 +3,8 @@
 Logs events when you perform the "Request Administrative Privileges" action in CyberArk EPM.  
 Assumes requests are always granted (i.e. through the JIT approver service)
 
+Supply `--json` for JSONL output
+
 ---
 
 ## Log Types

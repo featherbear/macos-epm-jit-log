@@ -61,11 +61,27 @@ const List = struct {
 var requests = List{ .mutex = std.Thread.Mutex{}, .list = std.ArrayList(i64).init(allocator) };
 var grants = List{ .mutex = std.Thread.Mutex{}, .list = std.ArrayList(i64).init(allocator) };
 
-pub fn emitEvent(event: AppEvent) !void {
+fn emitCsv(event: AppEvent) !void {
     if (event.waitTimeMs != null) {
         try stdout.print("{d},{s},{d}\n", .{ event.timeMs, event.type, @divTrunc(event.waitTimeMs.?, std.time.ms_per_s) });
     } else {
         try stdout.print("{d},{s}\n", .{ event.timeMs, event.type });
+    }
+}
+
+fn emitJson(event: AppEvent) !void {
+    var jsonWriter = std.json.writeStream(stdout, .{ .emit_null_optional_fields = false });
+
+    try jsonWriter.write(.{ .time = event.timeMs, .type = event.type, .waitTimeMs = event.waitTimeMs });
+    try stdout.writeByte('\n');
+}
+
+var shouldEmitAsJson = false;
+fn emit(event: AppEvent) !void {
+    if (shouldEmitAsJson) {
+        try emitJson(event);
+    } else {
+        try emitCsv(event);
     }
 }
 
@@ -82,11 +98,11 @@ fn grantMonitor(grantStartTimeMs: i64) !void {
 
         if ((now - grantStartTimeMs) > giveUpHours * std.time.ms_per_hour) {
             grants.remove(grantStartTimeMs);
-            try emitEvent(AppEvent{ .timeMs = now, .type = "revokeStopTracking" });
+            try emit(AppEvent{ .timeMs = now, .type = "revokeStopTracking" });
             break;
         }
 
-        try emitEvent(AppEvent{ .timeMs = now, .type = "revokePending" });
+        try emit(AppEvent{ .timeMs = now, .type = "revokePending" });
 
         std.time.sleep(waitMinutes * std.time.ns_per_min);
     }
@@ -105,17 +121,28 @@ fn requestMonitor(reqStartTimeMs: i64) !void {
 
         if ((now - reqStartTimeMs) > giveUpMinutes * std.time.ms_per_min) {
             requests.remove(reqStartTimeMs);
-            try emitEvent(AppEvent{ .timeMs = now, .type = "requestStopTracking" });
+            try emit(AppEvent{ .timeMs = now, .type = "requestStopTracking" });
             break;
         }
 
-        try emitEvent(AppEvent{ .timeMs = now, .type = "requestPending" });
+        try emit(AppEvent{ .timeMs = now, .type = "requestPending" });
 
         std.time.sleep(waitMinutes * std.time.ns_per_min);
     }
 }
 
 pub fn main() !void {
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
+
+    while (args.next()) |arg| {
+        // Also set JSON flag
+        if (std.mem.eql(u8, arg, "--json")) {
+            shouldEmitAsJson = true;
+            continue;
+        }
+    }
+
     const predicate = "subsystem == 'com.cyberark.CyberArkEPM' AND ((formatString == 'Requested administrative privileges') OR (eventMessage ENDSWITH \" 'admin' group\" AND (formatString BEGINSWITH 'ac_%llu: Did add ' OR formatString BEGINSWITH 'ac_%llu: Did remove ')))";
 
     var proc = ChildProcess.init(&[_][]const u8{ "/usr/bin/log", "stream", "--style", "ndjson", "--info", "--predicate", predicate }, allocator);
@@ -172,6 +199,6 @@ pub fn main() !void {
             continue;
         }
 
-        try emitEvent(evtObject);
+        try emit(evtObject);
     }
 }
